@@ -1,27 +1,27 @@
-name: Sync Sales Sheet to Kesion
+name: Sync Child Repo Changes
 
 on:
   workflow_dispatch: {}  # Manual trigger
   # Triggered by child repo when main branch is updated
 
 jobs:
-  sync-sales-sheet:
+  sync-child-repo:
     runs-on: ubuntu-latest
     concurrency:
-      group: sync-sales-sheet
+      group: sync-child-repo
       cancel-in-progress: false
     
     env:
-      PARENT_REPO: https://github.com/novatrade-co-jp/proj-kesion-backend-novatrade
-      PARENT_BRANCH: develop  # Base branch for new sync branch
-      CHILD_REPO: https://github.com/panhouse/prj-kesion-sales-sheet  # sales-sheet repo
-      CHILD_BRANCH: main  # sales-sheet main branch
-      CHILD_MODULE_PATH: .  # Root of sales-sheet repo
-      PARENT_MODULE_PATH: apps/sales_sheet  # Target path in kesion
+      PARENT_REPO: ${{ github.repository }}
+      PARENT_BRANCH: main  # Base branch for new sync branch
+      CHILD_REPO: ${{ vars.CHILD_REPO || 'devmaster-x/ex_child' }}  # Child repo reference
+      CHILD_BRANCH: main  # Child repo main branch
+      CHILD_MODULE_PATH: ./app  # Root of child repo
+      PARENT_MODULE_PATH: ./app  # Target path in parent repo
       TIMESTAMP: ${{ format('YYYY-MM-DD-HH-mm-ss', 'now') }}
 
     steps:
-      - name: Checkout kesion repo (develop branch)
+      - name: Checkout parent repo (main branch)
         uses: actions/checkout@v4
         with:
           ref: ${{ env.PARENT_BRANCH }}
@@ -29,21 +29,21 @@ jobs:
 
       - name: Create sync branch 
         run: |
-          BRANCH_NAME="panhouse-sales-sheet-${{ env.TIMESTAMP }}"
+          BRANCH_NAME="sync-child-repo-${{ env.TIMESTAMP }}"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
           git checkout -b "$BRANCH_NAME"
           echo "Created branch: $BRANCH_NAME"
 
-      - name: Checkout sales-sheet repo
+      - name: Checkout child repo
         uses: actions/checkout@v4
         with:
-          repository: panhouse/prj-kesion-sales-sheet
+          repository: ${{ env.CHILD_REPO }}
           ref: ${{ env.CHILD_BRANCH }}
-          path: sales-sheet
-          token: ${{ secrets.SALES_SHEET_TOKEN }}  # PAT with access to sales-sheet repo
+          path: child-repo
+          token: ${{ secrets.CHILD_REPO_TOKEN }}  # PAT with access to child repo
           fetch-depth: 0
 
-      - name: Sync sales-sheet -> kesion/apps/sales_sheet
+      - name: Sync child repo -> parent repo
         run: |
           # Create target directory
           mkdir -p "${{ env.PARENT_MODULE_PATH }}"
@@ -51,8 +51,8 @@ jobs:
           # Remove existing content
           rm -rf "${{ env.PARENT_MODULE_PATH }}"/*
           
-          # Copy all files from sales-sheet repo
-          cp -r sales-sheet/* "${{ env.PARENT_MODULE_PATH }}/"
+          # Copy all files from child repo
+          cp -r child-repo/* "${{ env.PARENT_MODULE_PATH }}/"
           
           # Remove .git directory if it exists
           rm -rf "${{ env.PARENT_MODULE_PATH }}/.git"
@@ -62,7 +62,7 @@ jobs:
           rm -rf "${{ env.PARENT_MODULE_PATH }}/.gitignore"
           rm -rf "${{ env.PARENT_MODULE_PATH }}/.gitattributes"
           
-          echo "Synced sales-sheet content to ${{ env.PARENT_MODULE_PATH }}"
+          echo "Synced child repo content to ${{ env.PARENT_MODULE_PATH }}"
 
       - name: Check for changes
         id: check-changes
@@ -81,7 +81,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "${{ env.PARENT_MODULE_PATH }}"
-          git commit -m "Sync sales-sheet from ${{ env.CHILD_REPO }} @ ${{ github.sha }}
+          git commit -m "Sync child repo from ${{ env.CHILD_REPO }} @ ${{ github.sha }}
 
           - Source: ${{ env.CHILD_REPO }}@${{ env.CHILD_BRANCH }}
           - Target: ${{ env.PARENT_MODULE_PATH }}
@@ -99,14 +99,14 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Sync sales-sheet from ${{ env.CHILD_REPO }} @ ${{ github.sha }}"
+          commit-message: "Sync child repo from ${{ env.CHILD_REPO }} @ ${{ github.sha }}"
           branch: "${{ env.BRANCH_NAME }}"
           base: ${{ env.PARENT_BRANCH }}
-          title: "Sync sales-sheet from ${{ env.CHILD_REPO }} - ${{ env.TIMESTAMP }}"
+          title: "Sync child repo from ${{ env.CHILD_REPO }} - ${{ env.TIMESTAMP }}"
           body: |
-            ## Automated Sync of Sales Sheet
+            ## Automated Sync of Child Repository
             
-            This PR syncs the latest changes from the **sales-sheet** repository to the **kesion** repository.
+            This PR syncs the latest changes from the **child repository** to the **parent repository**.
             
             ### Details
             - **Source**: `${{ env.CHILD_REPO }}@${{ env.CHILD_BRANCH }}`
@@ -115,8 +115,8 @@ jobs:
             - **Trigger**: `${{ github.event_name }}`
             
             ### What Changed
-            - Updated `${{ env.PARENT_MODULE_PATH }}/` directory with latest sales-sheet content
-            - All files from sales-sheet repo have been synchronized
+            - Updated `${{ env.PARENT_MODULE_PATH }}/` directory with latest child repo content
+            - All files from child repo have been synchronized
             
             ### Review Notes
             - This is an automated sync - please review the changes
@@ -128,7 +128,7 @@ jobs:
           labels: |
             automated
             sync
-            sales-sheet
+            child-repo
           assignees: |
             ${{ github.repository_owner }}
           reviewers: |
