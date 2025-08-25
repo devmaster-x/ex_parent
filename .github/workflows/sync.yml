@@ -76,72 +76,124 @@ jobs:
 
       - name: Sync child repo -> parent repo
         run: |
-          echo "Starting sync from child repo to parent repo..."
+          echo "=== STARTING SYNC PROCESS ==="
+          echo "Current working directory: $(pwd)"
           echo "Child repo path: child-repo"
           echo "Target path: ${{ env.PARENT_MODULE_PATH }}"
           
-          # List contents of child repo
-          echo "Contents of child repo:"
+          echo ""
+          echo "=== CHILD REPO CONTENTS ==="
+          echo "Root contents:"
           ls -la child-repo/
-          echo "Contents of child repo/app:"
-          ls -la child-repo/app/ || echo "No app directory found"
+          echo ""
+          echo "App directory contents:"
+          ls -la child-repo/app/
           
-          # Create target directory
+          echo ""
+          echo "=== TARGET DIRECTORY STATUS ==="
+          echo "Target directory before sync:"
+          ls -la "${{ env.PARENT_MODULE_PATH }}/" || echo "Target directory doesn't exist yet"
+          
+          echo ""
+          echo "=== PERFORMING SYNC ==="
+          
+          # Create target directory if it doesn't exist
           mkdir -p "${{ env.PARENT_MODULE_PATH }}"
           
-          # Remove existing content
+          # Remove all existing content in target directory
+          echo "Removing existing content..."
           rm -rf "${{ env.PARENT_MODULE_PATH }}"/*
           
-          # Copy all files from child repo app directory
-          if [ -d "child-repo/app" ]; then
-            echo "Copying from child-repo/app to ${{ env.PARENT_MODULE_PATH }}"
-            cp -r child-repo/app/* "${{ env.PARENT_MODULE_PATH }}/"
+          # Copy ALL files from child repo app directory to target
+          echo "Copying files from child-repo/app to ${{ env.PARENT_MODULE_PATH }}..."
+          
+          # Use rsync if available, otherwise use cp
+          if command -v rsync &> /dev/null; then
+            echo "Using rsync for copy..."
+            rsync -av child-repo/app/ "${{ env.PARENT_MODULE_PATH }}/"
           else
-            echo "No app directory found, copying from root"
-            cp -r child-repo/* "${{ env.PARENT_MODULE_PATH }}/"
+            echo "Using cp for copy..."
+            cp -rv child-repo/app/* "${{ env.PARENT_MODULE_PATH }/"
           fi
           
-          # Remove .git directory if it exists
-          rm -rf "${{ env.PARENT_MODULE_PATH }}/.git"
-          
-          # Remove any other unnecessary files
-          rm -rf "${{ env.PARENT_MODULE_PATH }}/.github"
-          rm -rf "${{ env.PARENT_MODULE_PATH }}/.gitignore"
-          rm -rf "${{ env.PARENT_MODULE_PATH }}/.gitattributes"
-          
-          # List final contents
-          echo "Final contents of target directory:"
+          echo ""
+          echo "=== VERIFICATION ==="
+          echo "Target directory contents after sync:"
           ls -la "${{ env.PARENT_MODULE_PATH }}/"
           
-          echo "Synced child repo content to ${{ env.PARENT_MODULE_PATH }}"
+          echo ""
+          echo "=== FILE COUNT COMPARISON ==="
+          echo "Files in child repo app: $(find child-repo/app -type f | wc -l)"
+          echo "Files in target directory: $(find "${{ env.PARENT_MODULE_PATH }}" -type f | wc -l)"
+          
+          echo ""
+          echo "=== SYNC COMPLETE ==="
+
+      - name: Clean up unwanted files
+        run: |
+          echo "=== CLEANING UP UNWANTED FILES ==="
+          
+          # Remove .git directory if it exists
+          if [ -d "${{ env.PARENT_MODULE_PATH }}/.git" ]; then
+            echo "Removing .git directory..."
+            rm -rf "${{ env.PARENT_MODULE_PATH }}/.git"
+          fi
+          
+          # Remove any other unnecessary files
+          for file in .github .gitignore .gitattributes; do
+            if [ -e "${{ env.PARENT_MODULE_PATH }}/$file" ]; then
+              echo "Removing $file..."
+              rm -rf "${{ env.PARENT_MODULE_PATH }}/$file"
+            fi
+          done
+          
+          echo "Cleanup complete!"
 
       - name: Verify sync results
         run: |
-          echo "Verifying sync results..."
-          echo "Expected files: app.js, homepage.js, readme.md"
+          echo "=== VERIFYING SYNC RESULTS ==="
+          echo "Expected files: app.js, homepage.js, readme.md, style.css"
+          echo ""
           
-          if [ -f "${{ env.PARENT_MODULE_PATH }}/app.js" ]; then
-            echo "✅ app.js found"
+          # Check each expected file
+          expected_files=("app.js" "homepage.js" "readme.md" "style.css")
+          missing_files=()
+          
+          for file in "${expected_files[@]}"; do
+            if [ -f "${{ env.PARENT_MODULE_PATH }}/$file" ]; then
+              echo "✅ $file found"
+              echo "   Size: $(stat -c%s "${{ env.PARENT_MODULE_PATH }}/$file" 2>/dev/null || stat -f%z "${{ env.PARENT_MODULE_PATH }}/$file" 2>/dev/null || echo "unknown") bytes"
+            else
+              echo "❌ $file missing"
+              missing_files+=("$file")
+            fi
+          done
+          
+          echo ""
+          echo "=== FINAL VERIFICATION ==="
+          if [ ${#missing_files[@]} -eq 0 ]; then
+            echo "🎉 All expected files are present!"
           else
-            echo "❌ app.js missing"
+            echo "⚠️  Missing files: ${missing_files[*]}"
+            echo "Current target directory contents:"
+            ls -la "${{ env.PARENT_MODULE_PATH }}/"
             exit 1
           fi
-          
-          if [ -f "${{ env.PARENT_MODULE_PATH }}/homepage.js" ]; then
-            echo "✅ homepage.js found"
-          else
-            echo "❌ homepage.js missing"
-            exit 1
-          fi
-          
-          if [ -f "${{ env.PARENT_MODULE_PATH }}/readme.md" ]; then
-            echo "✅ readme.md found"
-          else
-            echo "❌ readme.md missing"
-            exit 1
-          fi
-          
-          echo "All expected files are present!"
+
+      - name: Debug git status
+        run: |
+          echo "=== GIT STATUS DEBUG ==="
+          echo "Current git status:"
+          git status
+          echo ""
+          echo "Staged files:"
+          git diff --cached --name-only || echo "No staged files"
+          echo ""
+          echo "Modified files:"
+          git diff --name-only || echo "No modified files"
+          echo ""
+          echo "Untracked files:"
+          git ls-files --others --exclude-standard || echo "No untracked files"
 
       - name: Check for changes
         id: check-changes
