@@ -138,8 +138,8 @@ jobs:
             child-repo
           assignees: |
             ${{ github.repository_owner }}
-          reviewers: |
-            ${{ github.repository_owner }}
+          # reviewers: |
+          #   ${{ github.repository_owner }}
 
       - name: Cleanup on no changes
         if: steps.check-changes.outputs.has_changes == 'false'
