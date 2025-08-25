@@ -18,7 +18,6 @@ jobs:
       CHILD_BRANCH: main  # Child repo main branch
       CHILD_MODULE_PATH: ./app  # Root of child repo
       PARENT_MODULE_PATH: ./app  # Target path in parent repo
-      TIMESTAMP: ${{ format('YYYY-MM-DD-HH-mm-ss', 'now') }}
 
     steps:
       - name: Checkout parent repo (main branch)
@@ -43,7 +42,13 @@ jobs:
           git reset --hard origin/${{ env.PARENT_BRANCH }}
           echo "Updated to latest ${{ env.PARENT_BRANCH }} branch"
 
-      - name: Create sync branch 
+      - name: Set timestamp
+        run: |
+          TIMESTAMP=$(date '+%Y-%m-%d-%H-%M-%S')
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+          echo "Set timestamp: $TIMESTAMP"
+
+      - name: Create sync branch
         run: |
           # Create a more unique branch name with timestamp and run ID
           BRANCH_NAME="sync-child-repo-${{ github.run_id }}-${{ env.TIMESTAMP }}"
@@ -67,17 +72,34 @@ jobs:
           path: child-repo
           token: ${{ secrets.CHILD_REPO_TOKEN }}  # PAT with access to child repo
           fetch-depth: 0
+          submodules: false  # Explicitly disable submodules
 
       - name: Sync child repo -> parent repo
         run: |
+          echo "Starting sync from child repo to parent repo..."
+          echo "Child repo path: child-repo"
+          echo "Target path: ${{ env.PARENT_MODULE_PATH }}"
+          
+          # List contents of child repo
+          echo "Contents of child repo:"
+          ls -la child-repo/
+          echo "Contents of child repo/app:"
+          ls -la child-repo/app/ || echo "No app directory found"
+          
           # Create target directory
           mkdir -p "${{ env.PARENT_MODULE_PATH }}"
           
           # Remove existing content
           rm -rf "${{ env.PARENT_MODULE_PATH }}"/*
           
-          # Copy all files from child repo
-          cp -r child-repo/* "${{ env.PARENT_MODULE_PATH }}/"
+          # Copy all files from child repo app directory
+          if [ -d "child-repo/app" ]; then
+            echo "Copying from child-repo/app to ${{ env.PARENT_MODULE_PATH }}"
+            cp -r child-repo/app/* "${{ env.PARENT_MODULE_PATH }}/"
+          else
+            echo "No app directory found, copying from root"
+            cp -r child-repo/* "${{ env.PARENT_MODULE_PATH }}/"
+          fi
           
           # Remove .git directory if it exists
           rm -rf "${{ env.PARENT_MODULE_PATH }}/.git"
@@ -87,7 +109,39 @@ jobs:
           rm -rf "${{ env.PARENT_MODULE_PATH }}/.gitignore"
           rm -rf "${{ env.PARENT_MODULE_PATH }}/.gitattributes"
           
+          # List final contents
+          echo "Final contents of target directory:"
+          ls -la "${{ env.PARENT_MODULE_PATH }}/"
+          
           echo "Synced child repo content to ${{ env.PARENT_MODULE_PATH }}"
+
+      - name: Verify sync results
+        run: |
+          echo "Verifying sync results..."
+          echo "Expected files: app.js, homepage.js, readme.md"
+          
+          if [ -f "${{ env.PARENT_MODULE_PATH }}/app.js" ]; then
+            echo "✅ app.js found"
+          else
+            echo "❌ app.js missing"
+            exit 1
+          fi
+          
+          if [ -f "${{ env.PARENT_MODULE_PATH }}/homepage.js" ]; then
+            echo "✅ homepage.js found"
+          else
+            echo "❌ homepage.js missing"
+            exit 1
+          fi
+          
+          if [ -f "${{ env.PARENT_MODULE_PATH }}/readme.md" ]; then
+            echo "✅ readme.md found"
+          else
+            echo "❌ readme.md missing"
+            exit 1
+          fi
+          
+          echo "All expected files are present!"
 
       - name: Check for changes
         id: check-changes
