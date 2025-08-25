@@ -16,7 +16,6 @@ jobs:
       PARENT_BRANCH: main  # Base branch for new sync branch
       CHILD_REPO: ${{ vars.CHILD_REPO || 'devmaster-x/ex_child' }}  # Child repo reference
       CHILD_BRANCH: main  # Child repo main branch
-      CHILD_MODULE_PATH: ./app  # Root of child repo
       PARENT_MODULE_PATH: ./app  # Target path in parent repo
 
     steps:
@@ -107,14 +106,8 @@ jobs:
           # Copy ALL files from child repo app directory to target
           echo "Copying files from child-repo/app to ${{ env.PARENT_MODULE_PATH }}..."
           
-          # Use rsync if available, otherwise use cp
-          if command -v rsync &> /dev/null; then
-            echo "Using rsync for copy..."
-            rsync -av child-repo/app/ "${{ env.PARENT_MODULE_PATH }}/"
-          else
-            echo "Using cp for copy..."
-            cp -rv child-repo/app/* "${{ env.PARENT_MODULE_PATH }/"
-          fi
+          # Use cp with verbose output for reliable copying
+          cp -rv child-repo/app/* "${{ env.PARENT_MODULE_PATH }}/"
           
           echo ""
           echo "=== VERIFICATION ==="
@@ -162,7 +155,19 @@ jobs:
           for file in "${expected_files[@]}"; do
             if [ -f "${{ env.PARENT_MODULE_PATH }}/$file" ]; then
               echo "✅ $file found"
-              echo "   Size: $(stat -c%s "${{ env.PARENT_MODULE_PATH }}/$file" 2>/dev/null || stat -f%z "${{ env.PARENT_MODULE_PATH }}/$file" 2>/dev/null || echo "unknown") bytes"
+              # Get file size (works on both Linux and macOS)
+              if command -v stat >/dev/null 2>&1; then
+                if stat --version >/dev/null 2>&1; then
+                  # Linux stat
+                  size=$(stat -c%s "${{ env.PARENT_MODULE_PATH }}/$file" 2>/dev/null || echo "unknown")
+                else
+                  # macOS stat
+                  size=$(stat -f%z "${{ env.PARENT_MODULE_PATH }}/$file" 2>/dev/null || echo "unknown")
+                fi
+              else
+                size="unknown"
+              fi
+              echo "   Size: $size bytes"
             else
               echo "❌ $file missing"
               missing_files+=("$file")
@@ -273,8 +278,6 @@ jobs:
             child-repo
           assignees: |
             ${{ github.repository_owner }}
-          # reviewers: |
-          #   ${{ github.repository_owner }}
 
       - name: Cleanup on no changes
         if: steps.check-changes.outputs.has_changes == 'false'
