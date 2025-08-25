@@ -36,10 +36,26 @@ jobs:
           git remote set-url origin https://x-access-token:${{ secrets.CHILD_REPO_TOKEN }}@github.com/${{ github.repository }}.git
           echo "Updated git remote URL with PAT authentication"
 
+      - name: Update main branch
+        run: |
+          # Ensure we have the latest changes from main branch
+          git fetch origin
+          git reset --hard origin/${{ env.PARENT_BRANCH }}
+          echo "Updated to latest ${{ env.PARENT_BRANCH }} branch"
+
       - name: Create sync branch 
         run: |
-          BRANCH_NAME="sync-child-repo-${{ env.TIMESTAMP }}"
+          # Create a more unique branch name with timestamp and run ID
+          BRANCH_NAME="sync-child-repo-${{ github.run_id }}-${{ env.TIMESTAMP }}"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          
+          # Check if branch already exists locally and delete it
+          if git branch --list "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "Local branch $BRANCH_NAME already exists, deleting it..."
+            git branch -D "$BRANCH_NAME"
+          fi
+          
+          # Create the new branch
           git checkout -b "$BRANCH_NAME"
           echo "Created branch: $BRANCH_NAME"
 
@@ -95,9 +111,22 @@ jobs:
           - Timestamp: ${{ env.TIMESTAMP }}
           - Triggered by: ${{ github.event_name }}"
 
+      - name: Clean up existing remote branch
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          # Check if remote branch exists and delete it if it does
+          if git ls-remote --heads origin "${{ env.BRANCH_NAME }}" | grep -q "${{ env.BRANCH_NAME }}"; then
+            echo "Remote branch ${{ env.BRANCH_NAME }} already exists, deleting it first..."
+            git push origin --delete "${{ env.BRANCH_NAME }}" || true
+            echo "Remote branch deleted successfully"
+          else
+            echo "No existing remote branch found"
+          fi
+
       - name: Push sync branch
         if: steps.check-changes.outputs.has_changes == 'true'
         run: |
+          # Push the new branch
           git push origin "${{ env.BRANCH_NAME }}"
           echo "Pushed branch: ${{ env.BRANCH_NAME }}"
 
